@@ -1,0 +1,132 @@
+# Projet Cloud - PME e-business (produits artisanaux)
+# Lancement : docker compose up -d --build
+#
+# Structure attendue du dépôt :
+#   docker-compose.yml
+#   catalogue/      (app.py, requirements.txt, Dockerfile)
+#   commandes/      (app.py, requirements.txt, Dockerfile)
+#   notifications/  (app.py, requirements.txt, Dockerfile)
+
+services:
+  # ---------------------------------------------------------------
+  # Service Catalogue (Membre 2) - GET /products
+  # ---------------------------------------------------------------
+  catalogue:
+    build: ./catalogue
+    container_name: catalogue
+    ports:
+      - "5001:5000"
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@db_catalogue:5432/db_catalogue
+    depends_on:
+      db_catalogue:
+        condition: service_healthy
+    networks:
+      - pme-network
+    restart: unless-stopped
+
+  db_catalogue:
+    image: postgres:16-alpine
+    container_name: db_catalogue
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: db_catalogue
+    volumes:
+      - catalogue_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d db_catalogue"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - pme-network
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------
+  # Service Notifications (Membre 3) - POST /notify
+  # ---------------------------------------------------------------
+  notifications:
+    build: ./notifications
+    container_name: notifications
+    ports:
+      - "5003:5000"
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@db_notifications:5432/db_notifications
+    depends_on:
+      db_notifications:
+        condition: service_healthy
+    networks:
+      - pme-network
+    restart: unless-stopped
+
+  db_notifications:
+    image: postgres:16-alpine
+    container_name: db_notifications
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: db_notifications
+    volumes:
+      - notifications_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d db_notifications"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - pme-network
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------
+  # Service Commandes (Membre 3) - POST /orders
+  # Appelle catalogue (vérification produit) et notifications
+  # ---------------------------------------------------------------
+  commandes:
+    build: ./commandes
+    container_name: commandes
+    ports:
+      - "5002:5000"
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@db_commandes:5432/db_commandes
+      CATALOGUE_URL: http://catalogue:5000
+      NOTIFICATIONS_URL: http://notifications:5000
+    depends_on:
+      db_commandes:
+        condition: service_healthy
+      catalogue:
+        condition: service_started
+      notifications:
+        condition: service_started
+    networks:
+      - pme-network
+    restart: unless-stopped
+
+  db_commandes:
+    image: postgres:16-alpine
+    container_name: db_commandes
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: db_commandes
+    volumes:
+      - commandes_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d db_commandes"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - pme-network
+    restart: unless-stopped
+
+# Réseau personnalisé : les conteneurs se joignent par leur nom de service
+networks:
+  pme-network:
+    driver: bridge
+
+# Volumes persistants : les données survivent à "docker compose down"
+volumes:
+  catalogue_data:
+  commandes_data:
+  notifications_data:
