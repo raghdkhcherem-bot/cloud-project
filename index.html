@@ -1,26 +1,47 @@
 <!DOCTYPE html>
 <html lang="fr"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Notifications</title><link rel="stylesheet" href="/static/style.css"></head>
+<title>Commandes</title><link rel="stylesheet" href="/static/style.css"></head>
 <body>
 <header><div class="top"><div class="brand">🌿 PME Naturelle</div><nav id="nav"></nav></div>
-<div class="hero"><h1>Notifications</h1><p>Historique des messages envoyés aux clients, mis à jour automatiquement</p></div></header>
+<div class="hero"><h1>Commandes</h1><p>Passez une commande, elle est vérifiée puis notifiée automatiquement</p></div></header>
 <main>
-  <div class="stats"><div class="stat"><b id="n">0</b><small>notifications</small></div>
-  <div class="stat"><b id="live">●</b><small id="upd">en attente...</small></div></div>
-  <div id="list"></div>
+  <div class="panel" style="margin-top:26px"><h2>🛒 Nouvelle commande</h2>
+    <form id="form">
+      <label>Produit<select id="product" required></select></label>
+      <label>Quantité<input id="quantity" type="number" min="1" value="1" required></label>
+      <label>Nom du client<input id="name" placeholder="Ex : Ahmed Ben Ali" required></label>
+      <label>E-mail<input id="email" type="email" placeholder="client@exemple.com" required></label>
+      <div class="total">Total estimé <span id="total">0.00 DT</span></div>
+      <button id="btn" style="grid-column:1/-1">Confirmer la commande</button>
+    </form>
+  </div>
+  <div class="panel"><h2>📋 Commandes enregistrées <small id="count" style="color:#64748b"></small></h2>
+    <div class="table-wrap"><table><thead><tr><th>#</th><th>Produit</th><th>Qté</th><th>Client</th><th>Total</th></tr></thead><tbody id="orders"></tbody></table></div>
+  </div>
 </main>
-<footer>Microservice Notifications · port 5003</footer>
+<footer>Microservice Commandes · port 5002</footer>
+<div id="toast"></div>
 <script>
-const SERVICES=[["Catalogue",5001],["Commandes",5002],["Notifications",5003]], ME=5003;
+const SERVICES=[["Catalogue",5001],["Commandes",5002],["Notifications",5003]], ME=5002;
 document.getElementById("nav").innerHTML=SERVICES.map(([n,p])=>`<a class="${p===ME?"active":""}" href="http://${location.hostname}:${p}/">${n}</a>`).join("");
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
-function load(){fetch("/notifications").then(r=>r.json()).then(l=>{
-  document.getElementById("n").textContent=l.length;
-  document.getElementById("live").style.color="#16a34a";
-  document.getElementById("upd").textContent="mis à jour à "+new Date().toLocaleTimeString("fr-FR");
-  document.getElementById("list").innerHTML=l.slice().reverse().map(n=>`
-   <div class="notif"><div class="ico">✉️</div><div><b>Commande #${esc(n.order_id)}</b> · ${esc(n.customer_email)}<br>${esc(n.message)}<br><small>Notification #${esc(n.id)}</small></div></div>`).join("")
-   ||'<div class="empty">Aucune notification pour le moment</div>'})
-  .catch(()=>{document.getElementById("live").style.color="#dc2626";document.getElementById("upd").textContent="service injoignable"})}
-load(); setInterval(load,4000);
+const $=id=>document.getElementById(id);
+function toast(t,ok){const d=document.createElement("div");d.className="t "+(ok?"ok":"err");d.textContent=t;$("toast").append(d);setTimeout(()=>d.remove(),4000)}
+let products=[];
+function total(){const p=products.find(x=>x.id==$("product").value);$("total").textContent=(p?p.price*($("quantity").value||0):0).toFixed(2)+" DT"}
+fetch("/api/products").then(r=>r.json()).then(l=>{products=l;
+  $("product").innerHTML=l.map(p=>`<option value="${p.id}" ${p.stock===0?"disabled":""}>${esc(p.name)} — ${p.price} DT (stock ${p.stock})</option>`).join("");total()});
+$("product").onchange=total; $("quantity").oninput=total;
+function load(){fetch("/orders").then(r=>r.json()).then(l=>{
+  $("count").textContent="("+l.length+")";
+  $("orders").innerHTML=l.slice().reverse().map(o=>`<tr><td>#${esc(o.id)}</td><td>${esc(o.product_name??o.product_id)}</td><td>${esc(o.quantity)}</td><td>${esc(o.customer_name)}</td><td><b>${esc(o.total)} DT</b></td></tr>`).join("")||'<tr><td colspan="5" class="empty">Aucune commande pour le moment</td></tr>'})}
+load();
+$("form").onsubmit=async e=>{e.preventDefault();$("btn").disabled=true;
+  try{const r=await fetch("/orders",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
+    product_id:Number($("product").value),quantity:Number($("quantity").value),customer_name:$("name").value,customer_email:$("email").value})});
+    const d=await r.json();
+    if(r.ok){toast("✅ Commande confirmée, notification envoyée",true);load();e.target.reset();total()}
+    else toast("❌ "+(d.error||("Erreur "+r.status)),false);
+  }catch{toast("❌ Service indisponible",false)}
+  $("btn").disabled=false};
 </script></body></html>
